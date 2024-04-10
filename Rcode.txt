@@ -1,0 +1,168 @@
+#Import Basic Packages 
+#install.packages("dplyr")
+#install.packages("ggplot2")
+#install.packages("plotly")
+#install.packages("GGally")
+#install.packages("shiny")
+#install.packages("tidyr")
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library("GGally")
+library(shiny)
+library(tidyr)
+##########################################################
+#Read Data
+data1 <- read.csv("Results_21Mar2022.csv")
+data2 <- read.csv("Results_21MAR2022_nokcaladjust.csv")
+merged_data <- rbind(data1, data2)
+write.csv(merged_data, "Results.csv", row.names = FALSE)
+results <- read.csv("Results.csv")
+#head(results)
+#summary(results)
+########################################################
+#Preprocess Data
+processed_data <- results %>%
+      mutate(diet_group = case_when(
+          diet_group == "meat" ~ "Low meat-eaters",
+          diet_group == "meat50" ~ "Medium meat-eaters",
+          diet_group == "meat100" ~ "High meat eaters",
+          diet_group == "vegan" ~ "Vegans",
+          diet_group == "veggie" ~ "Vegetarians",
+          diet_group == "fish" ~ "Fish-eaters",
+          TRUE ~ diet_group  
+     ))
+#head(processed_data)
+
+#######################################################
+#q1: Which diet is most beneficial for the environment?
+#Indicators: mean_ghgs, mean_bio, mean_land, mean_acid, mean_eut
+#Create a column name mapping table
+column_names <- c("mean_ghgs" = "GHG emissions", 
+                  "mean_bio" = "Biodiversity Impact", 
+                  "mean_land" = "Land Use", 
+                  "mean_acid" = "Acidification Potential",
+                  "mean_eut" = "Eutrophication")
+
+#Calculate the weighted average for each diet
+weighted_averages <- processed_data %>%
+  group_by(diet_group) %>%
+  summarise(mean_ghgs = weighted.mean(mean_ghgs, n_participants),
+            mean_bio = weighted.mean(mean_bio, n_participants),
+            mean_land = weighted.mean(mean_land, n_participants),
+            mean_acid = weighted.mean(mean_acid, n_participants),
+            mean_eut = weighted.mean(mean_eut, n_participants))
+
+#Reshape data
+weighted_averages_long <- tidyr::pivot_longer(weighted_averages, 
+                                               cols = c(mean_ghgs, mean_bio, mean_land, mean_acid, mean_eut), 
+                                               names_to = "variable", 
+                                               values_to = "value")
+
+#Rename the X-axis identifier
+weighted_averages_long$variable <- factor(weighted_averages_long$variable, levels = names(column_names), labels = column_names)
+
+#Standardized data
+weighted_averages_long <- within(weighted_averages_long, {
+  value <- scales::rescale(value, to = c(0, 1))
+})
+
+#Draw parallel coordinates
+p1 <- ggplot(weighted_averages_long, aes(x = variable, y = value, group = diet_group, color = diet_group)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Comparison of Environmental Impact by Diet Group",
+       x = "Environmental Indicator", y = "Scaled Mean Value", color = "Diet Groups") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+#p1
+####################################################
+#q2: Relationship between Age, Gender, Participants and Diet
+#scatter plot
+custom_shapes <- c("Fish-eaters" = 0, "High meat eaters" = 1, "Low meat-eaters" = 17,
+                   "Medium meat-eaters" = 16, "Vegans" = 23, "Vegetarians" = 4)
+
+p2 <- ggplot(data = processed_data, aes(x = age_group, y = n_participants, color = sex, shape = diet_group)) +
+  geom_point(size = 4) +
+  scale_shape_manual(values = custom_shapes) +
+  labs(title = "Relationship between Age, Gender, Participants, and Diet",
+       x = "Age Group", y = "Number of Participants", color = "Gender", shape = "Diet Group") +
+  theme_minimal()
+#p2
+################################################
+#Combined plot
+p3 <- cowplot::plot_grid(p1, p2, nrow = 2)
+#p3
+
+
+###############################################
+#Interacive Plot
+##############################################
+
+# Define UI for application
+ui <- fluidPage(
+  
+  # Application title
+  titlePanel("Interactive Visualization for Coursework 2"),
+  
+  # Sidebar layout
+  sidebarLayout(
+    sidebarPanel(
+      # Button to switch between plots
+      actionButton("toggle_plot", "Switch Plots")
+    ),
+    mainPanel(
+      # Output: Plot
+      plotlyOutput("plot")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  
+  # Toggle between two plots
+  plot_choice <- reactiveVal(TRUE)
+  
+  observeEvent(input$toggle_plot, {
+    plot_choice(!plot_choice())
+  })
+  
+  # Generate plot based on user choice
+  output$plot <- renderPlotly({
+    if (plot_choice()) {
+      # Draw parallel coordinates plot
+      p1 <- ggplot(weighted_averages_long, aes(x = variable, y = value, group = diet_group, color = diet_group)) +
+        geom_line() +
+        geom_point() +
+        labs(title = "Comparison of Environmental Impact by Diet Group",
+             x = "Environmental Indicator", y = "Scaled Mean Value", color = "Diet Groups") +
+        theme_minimal() +
+        theme(legend.position = "bottom")
+      
+      # Convert ggplot object to plotly object
+      p1 <- ggplotly(p1)
+      
+      p1
+    } else {
+      # Draw scatter plot
+      p2 <- ggplot(data = processed_data, aes(x = age_group, y = n_participants, color = sex, shape = diet_group)) +
+        geom_point(size = 4) +
+        scale_shape_manual(values = custom_shapes) +
+        labs(title = "Relationship between Age, Gender, Participants, and Diet",
+             x = "Age Group", y = "Number of Participants", color = "Gender", shape = "Diet Group") +
+        theme_minimal()
+      
+      # Convert ggplot object to plotly object
+      p2 <- ggplotly(p2)
+      
+      p2
+    }
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
+
+
