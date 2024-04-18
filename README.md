@@ -1,4 +1,4 @@
-Run the code on R studio. 
+Copy the code from code.txt to R studio or run CW.R directly. 
 
 The code has 2 parts: code for static plot(named 'p3') and code for interactive plot.
 
